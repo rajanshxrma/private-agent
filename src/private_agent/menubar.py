@@ -5,12 +5,13 @@ import threading
 import rumps
 from PyObjCTools import AppHelper
 
-from private_agent.agent import run
+from private_agent.conversation import Conversation
 
 
 class PrivateAgentApp(rumps.App):
     def __init__(self) -> None:
         super().__init__("Private Agent", icon=None, title="\U0001f916")
+        self._conversation = Conversation()
 
     @rumps.clicked("Ask...")
     def ask(self, _sender: rumps.MenuItem) -> None:
@@ -31,7 +32,7 @@ class PrivateAgentApp(rumps.App):
 
         def _run_and_show() -> None:
             try:
-                answer = run(prompt)
+                answer = self._conversation.ask(prompt)
             except Exception as exc:  # surfaced to the user, not swallowed
                 answer = f"Something went wrong: {exc}"
 
@@ -49,6 +50,13 @@ class PrivateAgentApp(rumps.App):
             AppHelper.callAfter(_show_on_main_thread)
 
         threading.Thread(target=_run_and_show, daemon=True).start()
+
+    @rumps.clicked("New Conversation")
+    def new_conversation(self, _sender: rumps.MenuItem) -> None:
+        # Asks accumulate context (see conversation.py) so follow-ups like
+        # "make it 3pm instead" work -- this is the explicit way to drop that
+        # context and start clean, since it isn't safe to reset automatically.
+        self._conversation = Conversation()
 
     @rumps.clicked("Quit")
     def quit_app(self, _sender: rumps.MenuItem) -> None:
