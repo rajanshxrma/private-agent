@@ -37,15 +37,22 @@ The on-device model decides which tool (if any) to call based on your prompt, ex
 
 ## Architecture
 
-```
-prompt --> ChatAppleFoundationModels (on-device model)
-             |
-             +--> bind_tools([search_files, create_calendar_event,
-             |                create_reminder, draft_email])
-             |
-             +--> tool call decided + executed --> real result
-             |
-             +--> synthesized natural-language answer
+```mermaid
+flowchart LR
+    Prompt["prompt"] --> LLM["ChatAppleFoundationModels<br/>(on-device model)"]
+    LLM -->|"decides + calls"| Tools
+
+    subgraph Tools["bind_tools([...])"]
+        direction TB
+        T1["search_files<br/>Spotlight (mdfind)"]
+        T2["create_calendar_event<br/>AppleScript -> Calendar.app"]
+        T3["create_reminder<br/>AppleScript -> Reminders.app"]
+        T4["draft_email<br/>AppleScript -> Mail.app (draft only)"]
+    end
+
+    Tools --> Result["real result"]
+    Result --> LLM
+    LLM --> Answer["synthesized natural-language answer"]
 ```
 
 Each tool is a plain Python function; the on-device model's tool-calling introspects the function signature and docstring to know what arguments to pass -- no manual JSON-schema authoring.
