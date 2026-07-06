@@ -6,6 +6,7 @@ __pycache__/
 venv/
 .build-venv/
 DISTRIBUTION_DRAFTS.md
+LINKEDIN_DRAFT.md
 build/
 dist/
 .DS_Store
