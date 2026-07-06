@@ -95,6 +95,8 @@ MLX is meaningfully faster and far more consistent for this workload on this har
 
 The date-format number is the important one. It's not just plain-language dates like "today" -- the model frequently computes its own specific `YYYY-MM-DD` date and gets it flat wrong (dates in 2024-2025 were common outputs in a July 2026 test run), and sometimes invents a due date when the prompt never mentioned one at all. `tools/_dates.py` handles this by refusing to trust anything it can't verify: a small set of relative phrases (`today`, `tomorrow`, `next week`, `this weekend`, `in N days`) get computed from the real system clock; anything else -- including a plausible-looking `YYYY-MM-DD` -- is dropped rather than risked. A reminder with no due date is a much smaller problem than one confidently set on the wrong day.
 
+Full writeup on this finding: [`docs/eval-findings.md`](docs/eval-findings.md).
+
 ## Known limitations (found by actually testing this, not guessed)
 
 - **The on-device model can't be trusted to compute its own dates.** See Evals above -- `_dates.py`'s reject-if-unrecognized policy trades some false negatives (a legitimately unusual but correct date format gets dropped too) for eliminating silently-wrong dates, which is the worse failure mode of the two.
