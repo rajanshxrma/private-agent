@@ -50,6 +50,17 @@ prompt --> ChatAppleFoundationModels (on-device model)
 
 Each tool is a plain Python function; the on-device model's tool-calling introspects the function signature and docstring to know what arguments to pass -- no manual JSON-schema authoring.
 
+## Benchmarks (M1, 16GB RAM -- measured, not estimated)
+
+Small samples of this on-device model were wildly inconsistent run to run (0.3s-6.8s, occasional hangs) with no clear cause. A 20-call single-session sample resolved it into a real, repeatable number:
+
+| Backend | Median | Mean | Range | Sample |
+|---|---|---|---|---|
+| Apple on-device Foundation Model | 6.58s | 6.29s | 3.52s - 6.78s | 20 calls, short prompt |
+| MLX local (`Llama-3.2-3B-Instruct-4bit`) | 1.34s | 1.40s | 1.27s - 1.68s | 10 calls, 50 tokens |
+
+MLX is meaningfully faster and far more consistent for this workload on this hardware -- worth factoring in if latency matters more than using Apple's own on-device model specifically. The on-device Foundation Model's 20-call sample also showed 2 consecutive unexplained faster outliers (~3.5s) breaking an otherwise tight ~6.5-6.6s cluster; small samples (3-5 calls) would have reported anywhere from 0.3s to a full timeout depending on when you happened to measure.
+
 ## Known limitations (found by actually testing this, not guessed)
 
 - **The on-device model doesn't always follow format instructions exactly.** `create_reminder`'s docstring asks for MM/DD/YYYY, but the model sometimes passes plain language like "today" -- the tool normalizes the common cases (`today`, `tomorrow`) rather than trusting the model's formatting. Less common relative dates aren't handled yet.
