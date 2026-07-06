@@ -1,26 +1,9 @@
 """Reminders tool via AppleScript (Reminders.app) -- no extra dependencies needed."""
 
 import subprocess
-from datetime import datetime, timedelta
 
 from private_agent.tools._applescript import escape
-
-# The on-device model doesn't reliably follow the MM/DD/YYYY instruction in the
-# docstring below -- it sometimes sends plain-language values like "today",
-# which AppleScript's `date "..."` cannot parse. Normalize the common cases
-# rather than trusting the model's formatting.
-_RELATIVE_DATES = {
-    "today": 0,
-    "tomorrow": 1,
-}
-
-
-def _normalize_due_date(due_date: str) -> str:
-    key = due_date.strip().lower()
-    if key in _RELATIVE_DATES:
-        target = datetime.now() + timedelta(days=_RELATIVE_DATES[key])
-        return target.strftime("%m/%d/%Y")
-    return due_date
+from private_agent.tools._dates import normalize_date
 
 
 def create_reminder(title: str, due_date: str = "") -> str:
@@ -30,7 +13,14 @@ def create_reminder(title: str, due_date: str = "") -> str:
         title: The reminder's text.
         due_date: Optional due date in MM/DD/YYYY format, e.g. "07/10/2026". Leave empty for no due date.
     """
-    due_date = _normalize_due_date(due_date) if due_date else due_date
+    # An eval run found the model can't be trusted to compute its own
+    # relative/absolute dates correctly (89% of tool calls with a due_date
+    # sent something other than MM/DD/YYYY, often a specific but wrong
+    # date) -- see _dates.py. Untrustworthy input becomes no due date
+    # rather than a silently wrong one.
+    raw_due_date = due_date
+    due_date = normalize_date(due_date) or ""
+    date_was_rejected = bool(raw_due_date) and not due_date
     title_e = escape(title)
     if due_date:
         script = f'''
@@ -60,4 +50,11 @@ def create_reminder(title: str, due_date: str = "") -> str:
     )
     if result.returncode != 0:
         return f"Failed to create reminder: {result.stderr.strip()}"
-    return f"Created reminder '{title}'" + (f" due {due_date}." if due_date else ".")
+    if due_date:
+        return f"Created reminder '{title}' due {due_date}."
+    if date_was_rejected:
+        # Say so explicitly -- otherwise the model may still tell the user
+        # "due December 20th" from its own (wrong) context, even though no
+        # due date was actually set.
+        return f"Created reminder '{title}' with no due date (could not parse '{raw_due_date}' as a real date)."
+    return f"Created reminder '{title}'."

@@ -3,6 +3,7 @@
 from langchain_apple_foundation_models import ChatAppleFoundationModels
 from langchain_core.tools import tool
 
+from private_agent.router import needs_tools, run_mlx
 from private_agent.tools import create_calendar_event, create_reminder, draft_email, search_files
 
 INSTRUCTIONS = (
@@ -25,6 +26,10 @@ def build_agent() -> ChatAppleFoundationModels:
 
 
 def run(prompt: str) -> str:
+    # Route by whether the prompt plausibly needs a real tool -- see
+    # router.py for why this isn't a model-based classifier call.
+    if not needs_tools(prompt):
+        return run_mlx(prompt)
     agent = build_agent()
     result = agent.invoke(prompt)
     return result.content
