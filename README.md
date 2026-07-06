@@ -8,6 +8,12 @@ Runs on Apple's on-device Foundation Models via [langchain-apple-foundation-mode
 
 ## Install
 
+**Menu bar app (no Python required):** grab `Private-Agent-macOS.zip` from the [latest release](https://github.com/rajanshxrma/private-agent/releases/latest), unzip, and drag `Private Agent.app` to Applications.
+
+It's unsigned (no Apple Developer account behind this yet), so the first launch needs one extra step: right-click the app -> **Open** -> **Open** in the dialog that follows (or System Settings -> Privacy & Security -> "Open Anyway" if macOS blocks it outright). After that first launch it opens normally.
+
+**From source:**
+
 ```
 pip install -e .
 private-agent "find my resume"
