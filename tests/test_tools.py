@@ -9,8 +9,8 @@ import pytest
 MARK = "PRIVATE-AGENT-TEST-DELETE-ME"
 
 
-def _osascript(script: str) -> str:
-    result = subprocess.run(["osascript", "-e", script], capture_output=True, text=True, timeout=15)
+def _osascript(script: str, timeout: int = 15) -> str:
+    result = subprocess.run(["osascript", "-e", script], capture_output=True, text=True, timeout=timeout)
     return result.stdout.strip()
 
 
@@ -49,13 +49,17 @@ def test_create_and_cleanup_reminder():
 
     create_reminder(MARK)
     try:
+        # This account's default list has 2600+ reminders -- filtered AppleScript
+        # queries against it genuinely need up to ~90s, not the 15s that's fine
+        # for Calendar/Mail (confirmed: this exact query timed out at 15s on a
+        # real run, not flaky infra).
         count = _osascript(f'''
         tell application "Reminders"
             tell default list
                 return count of (every reminder whose name is "{MARK}")
             end tell
         end tell
-        ''')
+        ''', timeout=90)
         assert count == "1"
     finally:
         _osascript(f'''
@@ -64,7 +68,7 @@ def test_create_and_cleanup_reminder():
                 delete (every reminder whose name is "{MARK}")
             end tell
         end tell
-        ''')
+        ''', timeout=90)
 
 
 @pytest.mark.skip(reason="opens a visible Mail compose window -- run manually, not in CI/automated runs")

@@ -41,7 +41,10 @@ def test_agent_creates_and_cleans_up_reminder():
                 end tell
             end tell
             '''],
-            capture_output=True, text=True, timeout=15,
+            # See the delete call below -- this account's default list has
+            # 2600+ reminders, and this exact query timed out at 15s on a real
+            # run, so the read side needs the same 90s headroom as the delete.
+            capture_output=True, text=True, timeout=90,
         ).stdout.strip()
         assert int(count) >= 1
     finally:
