@@ -3,6 +3,8 @@
 import subprocess
 from datetime import datetime, timedelta
 
+from private_agent.tools._applescript import escape
+
 # The on-device model doesn't reliably follow the MM/DD/YYYY instruction in the
 # docstring below -- it sometimes sends plain-language values like "today",
 # which AppleScript's `date "..."` cannot parse. Normalize the common cases
@@ -29,12 +31,13 @@ def create_reminder(title: str, due_date: str = "") -> str:
         due_date: Optional due date in MM/DD/YYYY format, e.g. "07/10/2026". Leave empty for no due date.
     """
     due_date = _normalize_due_date(due_date) if due_date else due_date
+    title_e = escape(title)
     if due_date:
         script = f'''
         set dueDate to date "{due_date}"
         tell application "Reminders"
             tell default list
-                make new reminder with properties {{name:"{title}", due date:dueDate}}
+                make new reminder with properties {{name:"{title_e}", due date:dueDate}}
             end tell
         end tell
         '''
@@ -42,7 +45,7 @@ def create_reminder(title: str, due_date: str = "") -> str:
         script = f'''
         tell application "Reminders"
             tell default list
-                make new reminder with properties {{name:"{title}"}}
+                make new reminder with properties {{name:"{title_e}"}}
             end tell
         end tell
         '''
@@ -50,7 +53,10 @@ def create_reminder(title: str, due_date: str = "") -> str:
         ["osascript", "-e", script],
         capture_output=True,
         text=True,
-        timeout=10,
+        # This account's default list has 2600+ reminders -- even a plain
+        # insert (not just filtered queries/deletes) can exceed 10s at this
+        # scale, confirmed by a real timeout during testing.
+        timeout=90,
     )
     if result.returncode != 0:
         return f"Failed to create reminder: {result.stderr.strip()}"

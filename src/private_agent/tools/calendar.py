@@ -2,6 +2,8 @@
 
 import subprocess
 
+from private_agent.tools._applescript import escape
+
 
 def create_calendar_event(title: str, start_date: str, start_time: str = "09:00") -> str:
     """Create a new event on the user's default Calendar.
@@ -11,11 +13,12 @@ def create_calendar_event(title: str, start_date: str, start_time: str = "09:00"
         start_date: Date in MM/DD/YYYY format, e.g. "07/10/2026".
         start_time: Time in 24-hour HH:MM format, e.g. "14:30". Defaults to 09:00.
     """
+    title_e = escape(title)
     script = f'''
     set theDate to date "{start_date} {start_time}"
     tell application "Calendar"
         tell calendar 1
-            make new event with properties {{summary:"{title}", start date:theDate, end date:(theDate + 1 * hours)}}
+            make new event with properties {{summary:"{title_e}", start date:theDate, end date:(theDate + 1 * hours)}}
         end tell
     end tell
     '''
