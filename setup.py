@@ -14,7 +14,7 @@ OPTIONS = {
         "CFBundleName": "Private Agent",
         "CFBundleDisplayName": "Private Agent",
         "CFBundleIdentifier": "com.rajansharma.private-agent",
-        "CFBundleShortVersionString": "0.1.0",
+        "CFBundleShortVersionString": "0.2.0",
         "LSUIElement": True,
     },
     "packages": ["private_agent", "rumps", "langchain_apple_foundation_models"],
