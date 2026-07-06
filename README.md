@@ -70,6 +70,17 @@ The two backends have very different tradeoffs (see benchmarks below): the on-de
 
 So `router.py` uses a deliberately simple keyword classifier: if the prompt plausibly needs one of this agent's real tools (mentions finding/searching, scheduling, reminders, or email), it goes to the on-device model. Otherwise, it goes to MLX for a faster plain answer. No extra LLM call to decide routing -- that would spend more time than the routing saves.
 
+## Multi-turn conversations
+
+The menu bar app remembers context across successive "Ask..." calls, so a follow-up like "actually, make it 3pm instead" works without repeating the whole request. Use the **New Conversation** menu item to drop that context and start clean.
+
+The two backends carry that memory very differently, because of how each one actually works:
+
+- **On-device (tool) backend:** `ChatAppleFoundationModels` tracks conversation history itself, inside Apple's own on-device Session object -- replaying LangChain message history back into it does nothing, since the provider only ever reads a leading system message and the final human message off what's passed to `invoke()`. So `conversation.py` gets multi-turn memory here for free, just by reusing the same bound agent instance across turns instead of rebuilding it per call.
+- **MLX backend:** has no persistent session of its own, so memory here means literally replaying the full prior exchange through the chat template on every call (`router.run_mlx`'s `history` argument).
+
+One consequence of the on-device model owning its own history: once a conversation uses a real tool even once, every later turn in that conversation keeps going to the on-device backend, even if a later message has no tool keyword at all ("nevermind, that one's done" has nothing for the router to match on, but only the on-device session has the context to act on it). See Known limitations below for what this doesn't cover.
+
 ## Benchmarks (M1, 16GB RAM -- measured, not estimated)
 
 Small samples of this on-device model were wildly inconsistent run to run (0.3s-6.8s, occasional hangs) with no clear cause. A 20-call single-session sample resolved it into a real, repeatable number:
@@ -103,7 +114,7 @@ Full writeup on this finding: [`docs/eval-findings.md`](docs/eval-findings.md).
 - **File search is scoped to Downloads/Documents/Desktop, not the whole disk.** A naive Spotlight query with no scoping returns full-text matches from every indexed file on the machine, including code comments inside installed libraries -- try searching "resume" with no scoping and you'll get pytest internals before your actual resume.
 - **AppleScript automation on Reminders.app gets slow at scale.** Filtered queries and deletes against a list with 2000+ items can take tens of seconds -- this is a real characteristic of the scripting bridge at scale, not something this tool can fix.
 - **Mail drafts persist even if you close the compose window without saving.** Mail.app auto-saves visible compose windows to Drafts on its own schedule -- this is actually the desired behavior (you want to find your draft later), just worth knowing if you're testing.
-- **No multi-turn conversation yet.** Each CLI invocation is a fresh session; the menu bar app's "Ask..." dialog is similarly one-shot per click.
+- **Starting a conversation on MLX, then needing a tool, loses context.** See Multi-turn conversations above -- the on-device model has no visibility into anything said on MLX, since they're different models with no shared memory. Once a conversation touches the tool backend it stays there for the rest of that conversation to avoid the reverse problem.
 - **Doesn't yet use Apple's newer WWDC26 APIs** (the `LanguageModel` protocol for multi-model routing, `DynamicProfile` for multi-agent workflows, image input) -- those require a beta OS/SDK combination not yet stable enough to depend on for a working demo. Built entirely on the stable, public Foundation Models API.
 
 ## License

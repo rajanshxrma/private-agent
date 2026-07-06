@@ -56,20 +56,26 @@ _MLX_SYSTEM_PROMPT = (
 )
 
 
-def run_mlx(prompt: str, max_tokens: int = 256) -> str:
+def run_mlx(prompt: str, history: list | None = None, max_tokens: int = 256) -> str:
     """Plain (non-tool) generation via the faster local MLX model.
 
     Uses a shorter, accurate system prompt rather than agent.py's
     INSTRUCTIONS -- that one describes tool capabilities (file search,
     calendar, reminders, mail) this no-tools path can't actually act on, so
     reusing it here would promise something this path can't deliver.
+
+    MLX has no persistent session of its own (unlike the on-device backend --
+    see conversation.py), so multi-turn memory here means literally replaying
+    prior turns through the chat template on every call. `history` is a list
+    of langchain_core HumanMessage/AIMessage in chronological order.
     """
     from mlx_lm import generate
 
     model, tokenizer = _get_mlx()
-    messages = [
-        {"role": "system", "content": _MLX_SYSTEM_PROMPT},
-        {"role": "user", "content": prompt},
-    ]
+    messages = [{"role": "system", "content": _MLX_SYSTEM_PROMPT}]
+    for msg in history or []:
+        role = "assistant" if msg.type == "ai" else "user"
+        messages.append({"role": role, "content": msg.content})
+    messages.append({"role": "user", "content": prompt})
     formatted = tokenizer.apply_chat_template(messages, add_generation_prompt=True, tokenize=False)
     return generate(model, tokenizer, prompt=formatted, max_tokens=max_tokens, verbose=False)
