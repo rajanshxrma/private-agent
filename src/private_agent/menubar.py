@@ -3,6 +3,7 @@
 import threading
 
 import rumps
+from PyObjCTools import AppHelper
 
 from private_agent.agent import run
 
@@ -33,8 +34,19 @@ class PrivateAgentApp(rumps.App):
                 answer = run(prompt)
             except Exception as exc:  # surfaced to the user, not swallowed
                 answer = f"Something went wrong: {exc}"
-            rumps.alert(title="Private Agent", message=answer)
-            self.title = "\U0001f916"
+
+            def _show_on_main_thread() -> None:
+                # rumps.alert() creates an NSAlert, and AppKit requires all
+                # UI to be instantiated on the main thread -- calling it
+                # directly from this background worker thread crashes with
+                # NSInternalInconsistencyException, silently killing the
+                # thread before self.title is ever reset (confirmed by a
+                # real crash: the icon stuck on the "thinking" hourglass
+                # forever, no alert ever shown).
+                rumps.alert(title="Private Agent", message=answer)
+                self.title = "\U0001f916"
+
+            AppHelper.callAfter(_show_on_main_thread)
 
         threading.Thread(target=_run_and_show, daemon=True).start()
 
