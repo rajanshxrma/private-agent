@@ -2,10 +2,7 @@
 
 A private, on-device agentic assistant for macOS. Ask it to find a file, create a calendar event, set a reminder, or draft an email -- it decides which action to take and does it, entirely on your Mac.
 
-```
-private-agent "find my resume"
-private-agent "remind me to submit the internship application tomorrow"
-```
+![demo](assets/demo.gif)
 
 Runs on Apple's on-device Foundation Models via [langchain-apple-foundation-models](https://github.com/rajanshxrma/langchain-apple-foundation-models) -- no API key, no network call, nothing leaves the machine.
 
