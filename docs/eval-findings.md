@@ -25,4 +25,14 @@ The lesson holds well past this one project: an LLM's tool-calling output can be
 - Every artifact the agent actually created (reminders, calendar events) was verified to exist via AppleScript, then deleted — the eval leaves no trace and doesn't take the model's word for what it did.
 - Full script: [`scripts/eval_agent.py`](https://github.com/rajanshxrma/private-agent/blob/main/scripts/eval_agent.py).
 
+## Addendum: the same bug, in a form the safety net couldn't catch
+
+Adding a second, faster tool-calling backend (a local MLX model, alongside the on-device one) turned up a variant of this exact bug that's worse in one specific way: the on-device model's wrong dates were usually also wrong in *format*, which is precisely what `_dates.py`'s trust check was built to reject. Running the same 63-trial task set through MLX's tool-calling (`scripts/eval_mlx_tools.py`) found tool-selection just as reliable as the on-device model (100%, 0% hallucinated tool names) — but of the calls where MLX computed its own relative date into an already-valid `MM/DD/YYYY` string, **0/36 were numerically correct**. "Tomorrow" from a real Monday came back as a date four or five days out; "next Monday" came back as a Sunday.
+
+Because those dates are already in the trusted format, `_dates.py`'s existing policy — trust anything that looks like `MM/DD/YYYY`, reject anything else — has no way to catch them. They'd sail through as a legitimate user-provided date and land a real, wrong-dated reminder or event on the calendar, silently.
+
+One mitigation was tried: adding an explicit instruction to MLX's system prompt telling it to pass relative phrases (`tomorrow`, `next week`, ...) through unchanged rather than computing an absolute date itself. Re-running the eval showed it helped shift more calls into the safe, code-computed path (format "drift" — now actually the desired outcome — rose from 53% to 80%), but did nothing for the remaining calls: the value-correctness number held at 0/36. The model still self-computes a date some of the time, and it's still always wrong when it does.
+
+Given that, `run_mlx_tools` exists as a real, tested capability (see `src/private_agent/router.py`) but isn't the default for `create_reminder`/`create_calendar_event` — only for tools with no date argument, like `search_files`, where it measured cleanly. The broader lesson from the first finding held exactly where it mattered most: a second model, a second architecture, and the same category of bug, this time hidden one layer deeper.
+
 Source for the whole project, including this fix, is at [github.com/rajanshxrma/private-agent](https://github.com/rajanshxrma/private-agent).
