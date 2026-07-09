@@ -51,6 +51,51 @@ class PrivateAgentApp(rumps.App):
 
         threading.Thread(target=_run_and_show, daemon=True).start()
 
+    @rumps.clicked("Ask (voice)")
+    def ask_voice(self, _sender: rumps.MenuItem) -> None:
+        self.title = "\U0001f3a4"  # microphone emoji while listening
+
+        def _run_and_show() -> None:
+            from private_agent.voice import VoiceUnavailableError, listen, speak
+
+            try:
+                prompt = listen()
+            except VoiceUnavailableError as exc:
+
+                def _show_error() -> None:
+                    rumps.alert(title="Private Agent", message=str(exc))
+                    self.title = "\U0001f916"
+
+                AppHelper.callAfter(_show_error)
+                return
+
+            if not prompt:
+
+                def _show_nothing_heard() -> None:
+                    self.title = "\U0001f916"
+
+                AppHelper.callAfter(_show_nothing_heard)
+                return
+
+            def _set_thinking() -> None:
+                self.title = "⏳"
+
+            AppHelper.callAfter(_set_thinking)
+
+            try:
+                answer = self._conversation.ask(prompt)
+            except Exception as exc:  # surfaced to the user, not swallowed
+                answer = f"Something went wrong: {exc}"
+
+            def _show_and_speak() -> None:
+                rumps.alert(title="Private Agent", message=f"You said: {prompt}\n\n{answer}")
+                self.title = "\U0001f916"
+
+            AppHelper.callAfter(_show_and_speak)
+            speak(answer)
+
+        threading.Thread(target=_run_and_show, daemon=True).start()
+
     @rumps.clicked("New Conversation")
     def new_conversation(self, _sender: rumps.MenuItem) -> None:
         # Asks accumulate context (see conversation.py) so follow-ups like

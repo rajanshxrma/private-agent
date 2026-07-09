@@ -25,6 +25,8 @@ Or run it as a menu bar app:
 private-agent-menubar
 ```
 
+For voice input/output (see Voice front-end below), use `private-agent --voice` from source, or the **Ask (voice)** menu item in the menu bar app.
+
 Requires macOS 26+ with Apple Intelligence enabled, Apple Silicon.
 
 ## What it can do
@@ -81,6 +83,18 @@ The two backends carry that memory very differently, because of how each one act
 
 One consequence of the on-device model owning its own history: once a conversation uses a real tool even once, every later turn in that conversation keeps going to the on-device backend, even if a later message has no tool keyword at all ("nevermind, that one's done" has nothing for the router to match on, but only the on-device session has the context to act on it). See Known limitations below for what this doesn't cover.
 
+## Voice front-end -- the AusCall-latency-discipline sequel
+
+`private-agent --voice` (or **Ask (voice)** in the menu bar app) speaks your request and hears the answer read back, entirely on-device -- Apple's `Speech` framework for recognition (`SFSpeechRecognizer`, `requiresOnDeviceRecognition=True` set explicitly, verified this machine actually supports it rather than assumed) and `AVSpeechSynthesizer` for output, both via `voice.py`. No cloud speech API -- Apple's own docs describe speech recognition as "a network-based service" by default, which is a direct conflict with this whole project's premise, so on-device is forced rather than left as the default.
+
+**Three real bugs found and fixed while building this, worth understanding before touching `voice.py` again:**
+
+1. **A live-streaming design that silently never worked.** The first version streamed microphone buffers straight into a `SFSpeechAudioBufferRecognitionRequest` and polled for a result with plain `time.sleep()`. The audio tap fired reliably (confirmed: 61 real buffer callbacks in 6s of real audio) -- but the recognition task's result callback never fired even once. PyObjC/Cocoa async callbacks like this are delivered via the run loop, and a bare `time.sleep()` loop never services it. Fixed by switching to record-to-file (pure tap -> disk I/O, no callback timing involved) followed by one `SFSpeechURLRecognitionRequest` on the finished file, pumping `NSRunLoop` only for that one short request.
+2. **A race between the recording write finishing and the transcription read starting.** The exact same recording transcribed perfectly when read moments later in a fresh, separate call -- but returned empty when `listen()` called the transcribe step immediately after recording in the same process. `AVAudioFile` was never explicitly `.close()`d, only left to fall out of scope; Python/PyObjC's deallocation timing isn't guaranteed to happen before the very next line runs. Fixed with an explicit `.close()`.
+3. **Amplitude-based silence detection (stop recording once it goes quiet) proved genuinely unreliable across repeated real testing** -- 1/5 consecutive trials succeeded at one point, with most either cutting off before speech was ever detected or never detecting trailing silence at all. The amplitude math itself was verified correct in isolation (real speech measured at 0.17-0.43 peak vs. a 0.015-0.024 ambient noise floor, a clean order of magnitude apart) -- something about repeated `AVAudioEngine` start/stop cycles made the *live* behavior inconsistent in ways not worth chasing further blind. Replaced with fixed-duration recording (always record for `_RECORD_SECONDS = 5`, then transcribe the complete file), which removed the whole failure class: 5/5 on the first real test after the switch.
+
+**Real, measured reliability -- stated honestly, not oversold:** across ~25 real test trials (synthesized speech via macOS's `say`, picked up by the actual microphone, transcribed by the actual on-device recognizer), single-attempt success ranged 67-87% depending on the batch. Failures split into two different kinds: genuine silence/nothing-heard (which a retry reliably fixes) and outright misrecognition -- the recognizer confidently transcribing the wrong short word ("Sachin" for "testing", "Siri" for "draft an email"). `listen()` retries automatically up to 3 attempts total on an empty result, which pushes "at least one attempt returns *something*" past 99% at the measured per-attempt rate -- but a retry can't fix misrecognition, since a non-empty (if wrong) result stops the retry loop. This is a real, honest limitation of speech recognition technology generally (no STT system, including Apple's own Siri/Dictation, is 100%), likely made *worse* here than real usage would show: this session's own testing is a Mac's speaker bouncing synthesized audio back into its own microphone, which is measurably noisier than a human voice spoken directly at the laptop from normal distance. Real human-voice reliability is expected to be higher than these numbers, but hasn't been separately validated in this session -- worth a real spot-check before leaning on this for anything time-sensitive.
+
 ## Benchmarks (M1, 16GB RAM -- measured, not estimated)
 
 Small samples of this on-device model were wildly inconsistent run to run (0.3s-6.8s, occasional hangs) with no clear cause. A 20-call single-session sample resolved it into a real, repeatable number:
@@ -128,6 +142,8 @@ Full writeup on both findings: [`docs/eval-findings.md`](docs/eval-findings.md).
 - **Mail drafts persist even if you close the compose window without saving.** Mail.app auto-saves visible compose windows to Drafts on its own schedule -- this is actually the desired behavior (you want to find your draft later), just worth knowing if you're testing.
 - **Starting a conversation on MLX, then needing a tool, loses context.** See Multi-turn conversations above -- the on-device model has no visibility into anything said on MLX, since they're different models with no shared memory. Once a conversation touches the tool backend it stays there for the rest of that conversation to avoid the reverse problem.
 - **Doesn't yet use Apple's newer WWDC26 APIs** (the `LanguageModel` protocol for multi-model routing, `DynamicProfile` for multi-agent workflows, image input) -- those require a beta OS/SDK combination not yet stable enough to depend on for a working demo. Built entirely on the stable, public Foundation Models API.
+- **Voice input (`listen()`) isn't 100% reliable on the first attempt.** See the Voice front-end section above for the real measured numbers and the two distinct failure modes (silence vs. misrecognition) -- a retry (up to 3 attempts) handles the silence case well but can't fix a confidently-wrong transcription.
+- **Voice input records for a fixed 5-second window, not until you stop talking.** A deliberate trade-off after dynamic silence detection proved unreliable in testing (see Voice front-end above) -- a short command still waits the full window, and anything longer than 5 seconds gets cut off.
 
 ## License
 
