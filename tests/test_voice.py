@@ -52,6 +52,13 @@ def test_listen_transcribes_real_speech():
     # reliably across every batch they were tried in. A test fixture
     # should be representative of real usage, not a known acoustic edge
     # case for this particular test method.
+    # If this is failing every attempt (not just occasionally), check
+    # voice.py's module docstring for a known, unresolved macOS 27 (beta)
+    # regression found 2026-07-09 -- recording and transcription are each
+    # independently confirmed healthy in isolation, but listen()'s combined
+    # record-then-transcribe-immediately flow reliably returns empty on
+    # that OS. Not something this test can distinguish from a real new
+    # bug on its own; check the docstring's diagnostic notes first.
     for _ in range(3):
         subprocess.Popen(["bash", "-c", 'sleep 0.5 && say -r 135 "call the dentist"'])
         text = listen()

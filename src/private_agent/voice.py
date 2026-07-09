@@ -24,6 +24,35 @@ on the finished file, pumping NSRunLoop only for that one short request --
 verified end-to-end with a real recorded phrase ("the quick brown fox jumps
 over the lazy dog testing 123", isFinal=True). This also sidesteps the
 live-streaming reliability problem entirely rather than chasing it further.
+
+KNOWN REGRESSION, found during a macOS 27 (beta) stability checkpoint, NOT
+YET RESOLVED: on that OS, listen()'s record-then-immediately-transcribe flow
+reliably returns empty (2026-07-09: 4 consecutive full test failures, 12
+total real attempts, zero successful transcriptions), even though the
+underlying pieces are each independently confirmed healthy on that same
+machine at that same time -- (a) _record_to_file() produces a WAV file with
+strong, correctly-recorded speech (measured peak amplitude 0.54, well within
+the 0.17-0.43 range past real speech has measured at), and (b)
+_transcribe_file() correctly transcribes that exact file verbatim when
+called in a fresh, separate process a few moments later. This looks like the
+same *class* of bug already documented above (a race between recording
+finishing and transcription starting, within one process) recurring in a
+form the existing `audio_file.close()` fix no longer fully covers -- but
+adding an explicit settle delay after close() (tried 0.2s and 1s, both
+within the same process before calling _transcribe_file()) did NOT fix it,
+which rules out a simple flush-timing gap and points to something more
+structural (most likely an AVAudioEngine/AVAudioSession resource-release
+interaction with the Speech framework that changed on this OS version).
+Root cause not found; needs deeper investigation than sleep-tuning next
+time this comes up. This is a genuine regression, not a pre-existing issue
+this module always had: `listen()` was verified working end-to-end
+("the quick brown fox...", isFinal=True, see above) when this module was
+first built, before this machine's OS was upgraded to macOS 27. Note this
+can only be tested going forward on whatever OS is actually installed --
+pinning the Xcode/SDK *toolchain* via DEVELOPER_DIR (which the rest of this
+stability checkpoint does) does not pin the running OS itself, and this bug
+is tied to OS-level audio session behavior, not the build toolchain. See
+README.md's stability-checkpoint section for the full picture.
 """
 
 from __future__ import annotations
