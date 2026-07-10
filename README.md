@@ -1,5 +1,7 @@
 # private-agent
 
+> ⤴ This project's next chapter is **[Keep](https://github.com/rajanshxrma/keep)** -- one app that does this plus semantic search over your files and screen description. This repo remains the standalone original and still works; it will be archived once Keep reaches full parity.
+
 A private, on-device agentic assistant for macOS. Ask it to find a file, create a calendar event, set a reminder, or draft an email -- it decides which action to take and does it, entirely on your Mac.
 
 ![demo](assets/demo.gif)
