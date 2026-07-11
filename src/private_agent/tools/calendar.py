@@ -29,6 +29,11 @@ def create_calendar_event(title: str, start_date: str, start_time: str = "09:00"
     script = f'''
     set theDate to date "{start_date} {start_time}"
     tell application "Calendar"
+        -- On macOS 27, targeting Calendar while it isn't running errors
+        -- with -600 ("Application isn't running") instead of auto-launching
+        -- it the way AppleScript historically did. launch is idempotent and
+        -- doesn't bring the app forward, so it's safe to do every call.
+        launch
         tell calendar 1
             make new event with properties {{summary:"{title_e}", start date:theDate, end date:(theDate + 1 * hours)}}
         end tell
