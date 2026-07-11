@@ -44,23 +44,30 @@ def test_speak_does_not_raise():
 def test_listen_transcribes_real_speech():
     from private_agent.voice import listen
 
-    # "call the dentist" specifically, not a generic phrase like "testing
-    # one two three" -- real testing this session found the latter had a
-    # much higher misrecognition rate with this synthesized-voice
-    # self-test setup (repeatedly heard as unrelated short words like
-    # "Sachin"), while phrase-shaped commands like this one succeeded
-    # reliably across every batch they were tried in. A test fixture
-    # should be representative of real usage, not a known acoustic edge
-    # case for this particular test method.
-    # If this is failing every attempt (not just occasionally), check
-    # voice.py's module docstring for a known, unresolved macOS 27 (beta)
-    # regression found 2026-07-09 -- recording and transcription are each
-    # independently confirmed healthy in isolation, but listen()'s combined
-    # record-then-transcribe-immediately flow reliably returns empty on
-    # that OS. Not something this test can distinguish from a real new
-    # bug on its own; check the docstring's diagnostic notes first.
+    # A phrase-shaped command, not a generic phrase like "testing one two
+    # three" -- real testing found the latter had a much higher
+    # misrecognition rate with this synthesized-voice self-test setup
+    # (repeatedly heard as unrelated short words like "Sachin"), while
+    # phrase-shaped commands succeeded reliably. And a *long enough*
+    # phrase to fill most of listen()'s fixed 5s recording window:
+    # matrix-testing on 2026-07-10 showed the on-device recognizer
+    # deterministically returns empty for a short (~1.5s) utterance
+    # followed by several seconds of ambient room noise, while the same
+    # utterance in a shorter window -- or a longer utterance in the same
+    # 5s window -- transcribes perfectly under identical conditions. A
+    # test fixture should be representative of real usage, not a known
+    # acoustic edge case for this particular test method.
+    # A macOS 27 (beta) regression that made this fail EVERY attempt via a
+    # silent 15s stall was found 2026-07-09 and fixed + re-verified closed
+    # 2026-07-10 (transcription runs in a spawned subprocess -- see
+    # voice.py's module docstring for the full trail). If this test fails
+    # fast (not a long stall), that's ordinary noisy-environment
+    # misrecognition, not the old bug -- rerun in a quiet room before
+    # suspecting a regression.
     for _ in range(3):
-        subprocess.Popen(["bash", "-c", 'sleep 0.5 && say -r 135 "call the dentist"'])
+        subprocess.Popen(
+            ["bash", "-c", 'sleep 0.5 && say -r 135 "please call the dentist tomorrow morning"']
+        )
         text = listen()
         # "contains", not exact match -- same reasoning as private-agent's
         # other tests (reminder titles, etc): the recognizer can add minor

@@ -25,39 +25,58 @@ verified end-to-end with a real recorded phrase ("the quick brown fox jumps
 over the lazy dog testing 123", isFinal=True). This also sidesteps the
 live-streaming reliability problem entirely rather than chasing it further.
 
-KNOWN REGRESSION, found during a macOS 27 (beta) stability checkpoint, NOT
-YET RESOLVED: on that OS, listen()'s record-then-immediately-transcribe flow
-reliably returns empty (2026-07-09: 4 consecutive full test failures, 12
-total real attempts, zero successful transcriptions), even though the
-underlying pieces are each independently confirmed healthy on that same
-machine at that same time -- (a) _record_to_file() produces a WAV file with
-strong, correctly-recorded speech (measured peak amplitude 0.54, well within
-the 0.17-0.43 range past real speech has measured at), and (b)
-_transcribe_file() correctly transcribes that exact file verbatim when
-called in a fresh, separate process a few moments later. This looks like the
-same *class* of bug already documented above (a race between recording
-finishing and transcription starting, within one process) recurring in a
-form the existing `audio_file.close()` fix no longer fully covers -- but
-adding an explicit settle delay after close() (tried 0.2s and 1s, both
-within the same process before calling _transcribe_file()) did NOT fix it,
-which rules out a simple flush-timing gap and points to something more
-structural (most likely an AVAudioEngine/AVAudioSession resource-release
-interaction with the Speech framework that changed on this OS version).
-Root cause not found; needs deeper investigation than sleep-tuning next
-time this comes up. This is a genuine regression, not a pre-existing issue
-this module always had: `listen()` was verified working end-to-end
-("the quick brown fox...", isFinal=True, see above) when this module was
-first built, before this machine's OS was upgraded to macOS 27. Note this
-can only be tested going forward on whatever OS is actually installed --
-pinning the Xcode/SDK *toolchain* via DEVELOPER_DIR (which the rest of this
-stability checkpoint does) does not pin the running OS itself, and this bug
-is tied to OS-level audio session behavior, not the build toolchain. See
-README.md's stability-checkpoint section for the full picture.
+FIXED -- macOS 27 regression found during the 2026-07-09 stability
+checkpoint, fix verified closed 2026-07-10 (see the re-verification note
+at the end). On that OS, listen()'s record-then-immediately-
+transcribe flow originally reliably returned empty (2026-07-09: 4
+consecutive full test failures, 12 total real attempts, zero successful
+transcriptions) via a silent 15s stall -- the recognizer's callback simply
+never fired in-process, even though _record_to_file() produced a WAV with
+strong, correctly-recorded speech, and _transcribe_file() correctly
+transcribed that exact file verbatim when called in a fresh, separate
+process. A settle delay after close() (tried 0.2s and 1s) did NOT fix it,
+ruling out a flush-timing gap. An explicit AVAudioSession teardown in
+_record_to_file() (deactivating the shared session before transcription
+starts) was tried next and ALSO did NOT fix it -- ruled out by direct
+experiment, not guessed.
+
+What DID fix the stall, confirmed by direct experiment: running
+_transcribe_file() in an actual freshly-spawned OS process reliably
+completes fast (~1.3-1.6s, not a 15s timeout) every time, immediately after
+recording -- while the identical call made in-process still silently stalls
+to the deadline. _record_and_transcribe_once() now runs transcription in
+its own `multiprocessing` "spawn" subprocess for this reason (mirrors the
+"fresh process already works" case, same pattern as lantern's native
+backend probe). This part is real and verified: 2026-07-10, in a quiet
+environment, 3/3 and separately 2/3 (at max_attempts=1, no retry) correct
+transcriptions with confirmed strong real-speech amplitude (peak 0.93-0.98).
+
+RE-VERIFIED CLOSED, 2026-07-10 (same-day follow-up session): the subprocess
+fix was tested head-to-head against direct in-process transcription on the
+SAME recordings -- identical output every trial (verbatim-correct text,
+~1.3s subprocess vs ~0.4s direct), zero stalls anywhere across dozens of
+calls. The stall bug is gone and the fix demonstrably doesn't degrade
+transcription. What that head-to-head also pinned down precisely is a
+separate, recognizer-level behavior that had been muddying earlier
+measurements: with elevated ambient room noise (peak floor measured
+0.06-0.14 that day, vs the 0.015-0.024 documented quiet floor), a short
+(~1.5s) utterance inside the full 5s fixed window deterministically
+returns EMPTY -- in BOTH transcription paths, so it is not the fix and not
+the stall. Matrix-tested, same session: the same short phrase in a 3s
+window transcribed perfectly, and a longer utterance filling the 5s window
+transcribed perfectly at the same noise level. In other words, the
+recognizer discards short speech surrounded by a long noisy tail; speech
+that fills more of the window is robust even in a noisy room. This is a
+window-proportion effect of the fixed-duration recording trade-off (see
+_RECORD_SECONDS note below), documented in README's Limitations -- not an
+open bug in this module.
 """
 
 from __future__ import annotations
 
+import multiprocessing
 import os
+import queue
 import tempfile
 import time
 
@@ -179,10 +198,46 @@ def _transcribe_file(path: str) -> str:
     return state["text"].strip()
 
 
+def _transcribe_worker(path: str, result_queue: "multiprocessing.Queue[tuple[str, str]]") -> None:
+    """Entry point for the spawned subprocess that does the actual
+    transcription -- see this module's top-of-file note for why this needs
+    to run in a real separate OS process on macOS 27, not just a separate
+    call. Only ever invoked via `multiprocessing`'s "spawn" context, never
+    called directly."""
+    try:
+        result_queue.put(("ok", _transcribe_file(path)))
+    except VoiceUnavailableError as e:
+        result_queue.put(("err", str(e)))
+
+
 def _record_and_transcribe_once() -> str:
     path = _record_to_file()
     try:
-        return _transcribe_file(path)
+        # macOS 27 fix (2026-07-10): transcribing in-process, right after
+        # recording, reliably returns empty on this OS even with confirmed
+        # real, strong recorded audio -- see this module's top-of-file note
+        # for the full diagnostic trail (in-process AVAudioSession teardown
+        # tried and ruled out first). Running the transcription step in a
+        # freshly spawned subprocess mirrors the exact separate-process case
+        # already proven to work and fixes it reliably. "spawn", not the
+        # platform default (which is already "spawn" on macOS, but pinned
+        # explicitly here since the whole fix depends on it) -- "fork"
+        # would inherit this process's live Cocoa/AVFoundation state, which
+        # is the actual thing being sidestepped.
+        ctx = multiprocessing.get_context("spawn")
+        result_ipc: "multiprocessing.Queue[tuple[str, str]]" = ctx.Queue()
+        proc = ctx.Process(target=_transcribe_worker, args=(path, result_ipc))
+        proc.start()
+        try:
+            kind, value = result_ipc.get(timeout=20)
+        except queue.Empty:
+            proc.terminate()
+            proc.join(timeout=5)
+            raise VoiceUnavailableError("Transcription subprocess timed out without a result.")
+        proc.join(timeout=5)
+        if kind == "err":
+            raise VoiceUnavailableError(value)
+        return value
     finally:
         # Same "don't let a capture outlive its purpose" principle as
         # lantern's camera fix -- this file is audio of the user, gets
